@@ -55,6 +55,6 @@ ENTRYPOINT python /APP/cloudflare.py -j "$ENV_JENKINS"
 ```
  Основным процессом контейнера является собственно скрипт принимающий параметры, 
  которые нужно передать при запуске контейнера
- `docker run --rm -v $PWD:/APP -e TOKEN = <<TOKEN>>  -e FILE= <<FILE>>  <<image_name>> `
+ `docker run -i -e ENV_JENKINS=\"{'TOKEN': '${TOKEN_CF}', 'zone': '$i', 'ipaddress': '${ip_address}', 'mongol': 'false'}\" --rm  <<image_name>> `
  
  
