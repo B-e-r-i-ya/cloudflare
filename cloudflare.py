@@ -1,10 +1,13 @@
 import ast
+import sys
+
 import CloudFlare
 import click
 
-TOKEN = 'wgKC7ELJaC8t6c6DkOttyQEr0bBZV5IQ1Cy8wKtd'
+#TOKEN = ''
 
 def create_zone(cf, zone_name):
+    print("Создаем зону")
     zone_id = ''
     zone_info = cf.zones.get()
 
@@ -15,26 +18,26 @@ def create_zone(cf, zone_name):
         try:
             zone_id = (cf.zones.post(data={'jump_start': False, 'name': zone_name})["id"])
         except CloudFlare.exceptions.CloudFlareAPIError as e:
-            print(e)
+            sys.exit("При создании зоны " + str(zone_name) + " возникли проблемы: " + str(e))
 
     return zone_id
 
 def create_dns(cf, zone_id, data):
     #cf.zones.dns_records.get(zone_id)
+    print("Создаем DNS записи")
+    print(data)
     for item_data in data:
         print(type(item_data))
         try:
             cf.zones.dns_records.post(zone_id, data=item_data)
         except CloudFlare.exceptions.CloudFlareAPIError as e:
-            print(e)
-            break
+           sys.exit("При создании DNS для зоны прозошла ошибка: " + str(e))
 
 def create_firewallrules(cf, zone_id, data):
+    print("Создаем правила файрвола")
     filters = cf.zones.filters(zone_id)
-    print(filters)
     rules = cf.zones.firewall.rules.get(zone_id)
     for item_data in data:
-        print(item_data)
         if filters == []:
             try:
                 filter_id = cf.zones.filters.post(zone_id, data=[{
@@ -44,17 +47,15 @@ def create_firewallrules(cf, zone_id, data):
             except CloudFlare.exceptions.CloudFlareAPIError as e:
                 print(e)
         for item_filter in filters:
-            print(item_filter)
             if item_data["filter"] != item_filter["expression"]:
                 print("Создаем фильтр " + item_data["filter"])
-                print(type(item_data["filter"]))
                 try:
                     filter_id = cf.zones.filters.post(zone_id, data=[{
                                                             "paused": False,
                                                             "expression": item_data["filter"]
                                                         }])[0]["id"]
                 except CloudFlare.exceptions.CloudFlareAPIError as e:
-                    print(e)
+                    sys.exit(e)
             else:
                 print("Фильтр " + item_data["filter"] + " уже есть!")
                 filter_id = item_filter["id"]
@@ -72,7 +73,7 @@ def create_firewallrules(cf, zone_id, data):
                                         }}]
                 )
             except CloudFlare.exceptions.CloudFlareAPIError as e:
-                print(e)
+                sys.exit(e)
         for item_rule in rules:
             if item_data["name"] != item_rule["description"]:
                 try:
@@ -88,22 +89,7 @@ def create_firewallrules(cf, zone_id, data):
                                             }}]
                     )
                 except CloudFlare.exceptions.CloudFlareAPIError as e:
-                    print(e)
-
-
-cf = CloudFlare.CloudFlare(token=TOKEN)
-
-#print(cf.zones())
-#print(create_zone(cf, '777-777.org'))
-#for i in cf.zones.filters('cf749561a3d6671ec8038a459445182d'):
-    #print(i)
-    #cf.zones.filters.delete('cf749561a3d6671ec8038a459445182d', i["id"])
-
-#for i in cf.zones.dns_records('cf749561a3d6671ec8038a459445182d'):
-#    print(i)
-#    cf.zones.dns_records.delete('cf749561a3d6671ec8038a459445182d', i["id"])
-
-#cf.zones.delete('cf749561a3d6671ec8038a459445182d')
+                    sys.exit(e)
 
 dns = [{"name": "@", "type": "A", "content": "8.13.56.100", "proxied": True}]
 
@@ -113,10 +99,6 @@ firewall_rules = [
         {"name": "Allow Enterra list", "action": "allow", "filter": "(ip.src in $white_list_enterra)", "priority": 2, "paused": False},
         {"name": "Block ne MN", "action": "block", "filter": "(ip.geoip.country ne \"MN\")", "priority": 3, "paused": False}
     ]
-
-#create_dns(cf, create_zone(cf, '777-777.org'), dns)
-#create_firewallrules(cf, create_zone(cf, '777-777.org'), firewall_rules)
-
 
 @click.command()
 @click.option(
@@ -133,12 +115,17 @@ firewall_rules = [
     help='Если скрипт запускается с Jenkins',
 )
 
+@click.option(
+    '--test',
+    help='Для тестов',
+)
 
-def main(api_key, file, jenkins):
+
+def main(api_key, file, jenkins, test):
     """
     Данная программа предназначена для автоматизации работы с CloudFlare
-
     """
+
 
 
     firewall_rules = [
@@ -149,6 +136,7 @@ def main(api_key, file, jenkins):
         {"name": "Block ne MN", "action": "block", "filter": "(ip.geoip.country ne \"MN\")", "priority": 3,
          "paused": False}
     ]
+    
     try:
         api_key
     except NameError:
@@ -164,6 +152,11 @@ def main(api_key, file, jenkins):
     except NameError:
         jenkins = None
 
+    try:
+        test
+    except NameError:
+        test = None
+
 
     if not(api_key == None):
         TOKEN = api_key
@@ -171,10 +164,15 @@ def main(api_key, file, jenkins):
     #if file != None:
      #   file_pars(file)
 
+    if test != None:
+        print(test)
+
     if jenkins != None:
+        print(jenkins)
         jenkins = ast.literal_eval(jenkins)
-        dns = {"name": "@", "type": "A", "proxied": True}
-        print(jenkins["mongol"])
+        cf = CloudFlare.CloudFlare(token=jenkins["TOKEN"])
+        dns = []
+        dns_temp = {"name": "@", "type": "A", "proxied": True}
         if jenkins["mongol"] == False:
             firewall_rules = [
                 {"name": "Block DDoS UserAgent", "action": "block", "filter": "(http.user_agent contains \"Python\")",
@@ -197,7 +195,8 @@ def main(api_key, file, jenkins):
             ]
 
         zone_id = create_zone(cf, jenkins["zone"])
-        dns["content"] = jenkins["ipaddress"]
+        dns_temp["content"] = jenkins["ipaddress"]
+        dns.append(dns_temp)
         create_dns(cf, zone_id, dns)
         create_firewallrules(cf, zone_id, firewall_rules)
 
